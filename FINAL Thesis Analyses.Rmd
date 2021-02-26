@@ -1,0 +1,267 @@
+---
+title: "'Exploring the Relationship Between Children’s Vocabulary and their Understanding of Cardinality: A Methodological Approach"
+author: "Justin Slifer"
+date: "10/15/2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo=TRUE)
+knitr::opts_chunk$set(message=FALSE)
+knitr::opts_chunk$set(warning=FALSE)
+```
+
+# Preliminary Procedures
+
+**Setting the Working Directory and Loading Necessary Packages**
+
+```{r}
+# Set working directory
+setwd("~/Desktop/Lab Stuff/Justin's Thesis/Spreadsheets")
+getwd()
+
+# Load required packages
+library(robustfa) # Don't think I need this one actually
+library(beeswarm)
+library(sm)
+library(car)
+library(ppcor)
+library(foreign)
+library(ggplot2)
+library(MASS)
+library(Hmisc)
+library(reshape2)
+library(gridExtra)
+library("knitr")
+library(yaml)
+```
+
+**Loading and Preparing the Dataframe**
+
+```{r, tidy=TRUE}
+# Reading spreadsheets into R, and subsetting out empty rows 
+Give_N <- read.csv("~/Desktop/Lab Stuff/Justin's Thesis/Spreadsheets/GiveN_JS_200219_ForThesis.csv", na.strings="N/A")
+PPVT <- read.csv("~/Desktop/Lab Stuff/Justin's Thesis/Spreadsheets/PPVT_Data_JS_200224_ForThesis.csv", na.strings="N/A")
+PPVT[3,29] <- 95
+FullData <- merge(Give_N, PPVT, by.x="SUBJECT.ID", by.y="SUBJECT.ID")
+FullData <- subset(FullData, FullData$Including.in.Study. == "Yes" & FullData$Age.x != "" & FullData$Raw_Score != "" & FullData$GN_All_Ceiling_Conservative != "")
+
+# Check the structure and data type of each column
+str(FullData)
+```
+
+**Checking that Participant Demographics Match in the Merged Spreadsheets**
+
+```{r, tidy=TRUE, tidy.opts=list(width.cutoff=60)}
+# Checking if Date Tested matches for each ID on each spreadsheet (verification purposes) - all match, checked on 09/23/2020
+Date.Tested_check <- data.frame(FullData$Date.Tested.x,FullData$Date.Tested.y)
+Date.Tested_check$check <- ifelse(Date.Tested_check$FullData.Date.Tested.x==Date.Tested_check$FullData.Date.Tested.y,1,0)
+nrow(Date.Tested_check[Date.Tested_check$check==0,])  
+
+# Checking if DOB matches for each ID on each spreadsheet (verification purposes)
+DOB_check <- data.frame(FullData$DOB,FullData$Birthdate)
+DOB_check$check <- ifelse(DOB_check$FullData.DOB==DOB_check$FullData.Birthdate,1,0)
+nrow(DOB_check[DOB_check$check==0,])  
+
+# Checking if Age matches for each ID on each spreadsheet (verification purposes)
+Age_check <- data.frame(FullData$Age.x,FullData$Age.y)
+Age_check$check <- ifelse(Age_check$FullData.Age.x==Age_check$FullData.Age.y,1,0)
+nrow(Age_check[Age_check$check==0,])
+
+# Checking if Sex matches for each ID on each spreadsheet (verification purposes)
+Sex_check <- data.frame(FullData$Sex.x,FullData$Sex.y)
+Sex_check$check <- ifelse(Sex_check$FullData.Sex.x==Sex_check$FullData.Sex.y,1,0)
+nrow(Sex_check[Sex_check$check==0,])
+
+# Checking if Including in Study matches for each ID on each spreadsheet (verification purposes)
+Inc_check <- data.frame(FullData$Including.in.Study.,FullData$Including_in_study)
+Inc_check$check <- ifelse(Inc_check$FullData.Including.in.Study.==Inc_check$FullData.Including_in_study,1,0)
+nrow(Inc_check[Inc_check$check==0,])
+
+# Checking if SES matches for each ID on each spreadsheet (verification purposes)
+SES_check <- data.frame(FullData$SES..8.66.,FullData$SES_Score)
+SES_check$check <- ifelse(SES_check$FullData.SES..8.66.==SES_check$FullData.SES_Score,1,0)
+nrow(SES_check[SES_check$check==0,]) # 7 mismatches, but all due to missing data. PPVT SES (FullData$SES_Score) accurate with BGQ but still has 3 missing values (HBE004,HBE010,HBE021)
+
+# Checking if Language Tested matches for each ID on each spreadsheet (verification purposes)
+LT_check <- data.frame(FullData$SUBJECT.ID,FullData$Child_LanguageTested,FullData$Language_Tested)
+LT_check$check <- ifelse(LT_check$FullData.Child_LanguageTested==LT_check$FullData.Language_Tested,1,0)
+nrow(LT_check[LT_check$check==0,]) 
+```
+
+```{r, eval=FALSE, echo=FALSE}
+# Delete duplicate columns
+FullData[c(2,3,4,5,6,10,12)] <- list(NULL) # Remove Give N versions of duplicates, **DO NOT USE, deletes columns used later for analyses (like "Age.x"). Need to revise to delete "___.y" type columns
+```
+
+**Calculating Demographics**
+
+```{r}
+# Calculating participants included
+nrow(FullData[FullData$Including.in.Study. == "Yes",]) # 47 included
+nrow(FullData[FullData$Including.in.Study. == "No",]) # 0 not included
+
+# Calculating sex demographics
+nrow(FullData[FullData$Sex.x=="Female",]) # 31 females
+nrow(FullData[FullData$Sex.x=="Male",]) # 16 males
+
+# Calculating age demographics
+mean(FullData$Age.x) 
+sd(FullData$Age.x)
+min(FullData$Age.x) 
+max(FullData$Age.x) 
+```
+***
+# Start of Analyses
+
+**Subsetting By Age Groups for Comparison Between Studies**
+
+```{r}
+SarneckaAge <-  subset(FullData, FullData$Age.x < 4.75) # 26 kids between 2.5 and 4.75
+HornburgAge <- subset(FullData, FullData$Age.x < 6.03 & FullData$Age.x > 3.5) # 42 kids between 3.5 and 6.03
+AnsariAge <- subset(FullData, FullData$Age.x < 5.25 & FullData$Age.x > 2.5) # 38 kids between 2.5 and 5.25
+```
+
+**Plots of Age vs. Give-N (KL and PC)**
+*General Note: need to set height and width of jitter for consistency in plots*
+```{r}
+# Knower-Level
+ggplot(FullData, aes(x=Age.x, y=GN_Small_Ceiling._FinalSet_conservative)) +
+  geom_jitter()+
+  xlab("Age (Years)") +
+  ylab("Give-N Knower-level Score") +
+  ggtitle("Age vs. Knower-level Give-N Score") +
+  theme(plot.title=element_text(hjust=0.5,face="bold",size = 16),
+        axis.text=element_text(size=12),axis.title=element_text(size=14)) +
+  geom_smooth(method = "loess",se=FALSE)
+
+# Proportion-Correct
+ggplot(FullData, aes(x=Age.x, y=Proportion.Correct..Give.N.small.)) +
+  geom_jitter() +
+  xlab("Age (Years)") +
+  ylab("Give-N Proportion-Correct Score") +
+  ggtitle("Age vs. Proportion-Correct Give-N Score") +
+  theme(plot.title=element_text(hjust=0.5,face="bold",size = 16),
+        axis.text=element_text(size=12),axis.title=element_text(size=14)) +
+  geom_smooth(method = "loess",se=FALSE)
+```
+
+**Plot of Age vs. PPVT Raw Scores**
+*Note: We excluded participants over 6.5 years due to an outlier (right word?) affecting correlation.*
+```{r}
+# Full Data Age (<6.5 yrs)
+ggplot(subset(FullData,FullData$Age.x<6.5), aes(x=Age.x, y=Raw_Score)) +
+  geom_jitter() +
+  xlab("Age (Years)") +
+  ylab("PPVT Raw Score") +
+  ggtitle("Age vs. PPVT Raw Score") +
+  theme(plot.title=element_text(hjust=0.5,face="bold",size = 16),
+        axis.text=element_text(size=12),axis.title=element_text(size=14)) +
+  geom_smooth(method = "loess",se=FALSE)
+```
+
+**Correlation Between Give-N Score Types: KL and PC**
+
+```{r}
+pcor.test(FullData$Proportion.Correct..Give.N.small.,FullData$GN_Small_Ceiling._FinalSet_conservative,FullData$Age.x, method="spearman")
+```
+The correlation between the Give-N score types partialed for age is 0.919. This correlation is significant (p<0.0001).
+
+**Plots and Partial Correlations Between PPVT Raw Scores and Give-N Scores (KL and PC)**
+
+```{r}
+# Knower-Level
+ggplot(FullData, aes(x=Raw_Score, y=GN_Small_Ceiling._FinalSet_conservative)) +
+  geom_jitter() +
+  xlab("PPVT Raw Score") +
+  ylab("Give-N Knower-level Score") +
+  ggtitle("PPVT Raw Scores vs. Knower-level Give-N Scores") +
+  theme(plot.title=element_text(hjust=0.5,face="bold",size = 18),
+        axis.text=element_text(size=12),axis.title=element_text(size=14)) +
+  geom_smooth(method = "loess",se=FALSE)
+pcor.test(FullData$Raw_Score,FullData$GN_Small_Ceiling._FinalSet_conservative,FullData$Age.x,method="spearman") 
+```
+<br> 
+The correlation between the PPVT raw scores and Knower-Level Give-N scores is 0.313. This correlation is significant (p<0.05).
+
+```{r}
+# Proportion-Correct
+ggplot(FullData, aes(x=Raw_Score, y=Proportion.Correct..Give.N.small.)) +
+  geom_jitter() +
+  xlab("PPVT Raw Score") +
+  ylab("Give-N Proportion-Correct Score") +
+  ggtitle("PPVT Raw Scores vs. Proportion-Correct Give-N Scores") +
+  theme(plot.title=element_text(hjust=0.5,face="bold",size = 18),
+        axis.text=element_text(size=12),axis.title=element_text(size=14)) +
+  geom_smooth(method = "loess",se=FALSE)
+pcor.test(FullData$Raw_Score,FullData$Proportion.Correct..Give.N.small.,FullData$Age.x) # r = 0.547, p<0.0001
+```
+The correlation between the PPVT raw scores and Proportion-Correct Give-N scores is 0.547. This correlation is significant (p<0.0001).
+
+**Table of Frequency Counts of Knower-Levels for Each Age Group**
+*Need to add a total column to this table*
+```{r}
+KLF_rnames <- c("Quantity of Sarnecka Age Kids","Quantity of Hornburg Age Kids","Quantity of Ansari Age Kids","Quantity of Full Data Age Kids","Proportion of Sarnecka Age Kids","Proportion of Hornburg Age Kids","Proportion of Ansari Age Kids","Proportion of Full Data Age Kids")
+KLF_cnames <- c("Pre-knowers","1-knowers","2-knowers","3-knowers","4-knowers","5-knowers","6-knowers")
+KnowerLevel_Freq <- matrix(c(
+  format(round(nrow(SarneckaAge[SarneckaAge$GN_Small_Ceiling._FinalSet_conservative=="0",]))),
+  nrow(SarneckaAge[SarneckaAge$GN_Small_Ceiling._FinalSet_conservative=="1",]),
+  nrow(SarneckaAge[SarneckaAge$GN_Small_Ceiling._FinalSet_conservative=="2",]),
+  nrow(SarneckaAge[SarneckaAge$GN_Small_Ceiling._FinalSet_conservative=="3",]),
+  nrow(SarneckaAge[SarneckaAge$GN_Small_Ceiling._FinalSet_conservative=="4",]),
+  nrow(SarneckaAge[SarneckaAge$GN_Small_Ceiling._FinalSet_conservative=="5",]),
+  nrow(SarneckaAge[SarneckaAge$GN_Small_Ceiling._FinalSet_conservative=="6",]),
+  nrow(HornburgAge[HornburgAge$GN_Small_Ceiling._FinalSet_conservative=="0",]),
+  nrow(HornburgAge[HornburgAge$GN_Small_Ceiling._FinalSet_conservative=="1",]),
+  nrow(HornburgAge[HornburgAge$GN_Small_Ceiling._FinalSet_conservative=="2",]),
+  nrow(HornburgAge[HornburgAge$GN_Small_Ceiling._FinalSet_conservative=="3",]),
+  nrow(HornburgAge[HornburgAge$GN_Small_Ceiling._FinalSet_conservative=="4",]),
+  nrow(HornburgAge[HornburgAge$GN_Small_Ceiling._FinalSet_conservative=="5",]),
+  nrow(HornburgAge[HornburgAge$GN_Small_Ceiling._FinalSet_conservative=="6",]),
+  nrow(AnsariAge[AnsariAge$GN_Small_Ceiling._FinalSet_conservative=="0",]),
+  nrow(AnsariAge[AnsariAge$GN_Small_Ceiling._FinalSet_conservative=="1",]),
+  nrow(AnsariAge[AnsariAge$GN_Small_Ceiling._FinalSet_conservative=="2",]),
+  nrow(AnsariAge[AnsariAge$GN_Small_Ceiling._FinalSet_conservative=="3",]),
+  nrow(AnsariAge[AnsariAge$GN_Small_Ceiling._FinalSet_conservative=="4",]),
+  nrow(AnsariAge[AnsariAge$GN_Small_Ceiling._FinalSet_conservative=="5",]),
+  nrow(AnsariAge[AnsariAge$GN_Small_Ceiling._FinalSet_conservative=="6",]),
+  nrow(FullData[FullData$GN_Small_Ceiling._FinalSet_conservative=="0",]),
+  nrow(FullData[FullData$GN_Small_Ceiling._FinalSet_conservative=="1",]),
+  nrow(FullData[FullData$GN_Small_Ceiling._FinalSet_conservative=="2",]),
+  nrow(FullData[FullData$GN_Small_Ceiling._FinalSet_conservative=="3",]),
+  nrow(FullData[FullData$GN_Small_Ceiling._FinalSet_conservative=="4",]),
+  nrow(FullData[FullData$GN_Small_Ceiling._FinalSet_conservative=="5",]),
+  nrow(FullData[FullData$GN_Small_Ceiling._FinalSet_conservative=="6",]),
+  format(round(nrow(SarneckaAge[SarneckaAge$GN_Small_Ceiling._FinalSet_conservative=="0",])/26,2),nsmall=2),
+  format(round(nrow(SarneckaAge[SarneckaAge$GN_Small_Ceiling._FinalSet_conservative=="1",])/26,2),nsmall=2),
+  format(round(nrow(SarneckaAge[SarneckaAge$GN_Small_Ceiling._FinalSet_conservative=="2",])/26,2),nsmall=2),
+  format(round(nrow(SarneckaAge[SarneckaAge$GN_Small_Ceiling._FinalSet_conservative=="3",])/26,2),nsmall=2),
+  format(round(nrow(SarneckaAge[SarneckaAge$GN_Small_Ceiling._FinalSet_conservative=="4",])/26,2),nsmall=2),
+  format(round(nrow(SarneckaAge[SarneckaAge$GN_Small_Ceiling._FinalSet_conservative=="5",])/26,2),nsmall=2),
+  format(round(nrow(SarneckaAge[SarneckaAge$GN_Small_Ceiling._FinalSet_conservative=="6",])/26,2),nsmall=2),
+  format(round(nrow(HornburgAge[HornburgAge$GN_Small_Ceiling._FinalSet_conservative=="0",])/42,2),nsmall=2),
+  format(round(nrow(HornburgAge[HornburgAge$GN_Small_Ceiling._FinalSet_conservative=="1",])/42,2),nsmall=2),
+  format(round(nrow(HornburgAge[HornburgAge$GN_Small_Ceiling._FinalSet_conservative=="2",])/42,2),nsmall=2),
+  format(round(nrow(HornburgAge[HornburgAge$GN_Small_Ceiling._FinalSet_conservative=="3",])/42,2),nsmall=2),
+  format(round(nrow(HornburgAge[HornburgAge$GN_Small_Ceiling._FinalSet_conservative=="4",])/42,2),nsmall=2),
+  format(round(nrow(HornburgAge[HornburgAge$GN_Small_Ceiling._FinalSet_conservative=="5",])/42,2),nsmall=2),
+  format(round(nrow(HornburgAge[HornburgAge$GN_Small_Ceiling._FinalSet_conservative=="6",])/42,2),nsmall=2),
+  format(round(nrow(AnsariAge[AnsariAge$GN_Small_Ceiling._FinalSet_conservative=="0",])/38,2),nsmall=2),
+  format(round(nrow(AnsariAge[AnsariAge$GN_Small_Ceiling._FinalSet_conservative=="1",])/38,2),nsmall=2),
+  format(round(nrow(AnsariAge[AnsariAge$GN_Small_Ceiling._FinalSet_conservative=="2",])/38,2),nsmall=2),
+  format(round(nrow(AnsariAge[AnsariAge$GN_Small_Ceiling._FinalSet_conservative=="3",])/38,2),nsmall=2),
+  format(round(nrow(AnsariAge[AnsariAge$GN_Small_Ceiling._FinalSet_conservative=="4",])/38,2),nsmall=2),
+  format(round(nrow(AnsariAge[AnsariAge$GN_Small_Ceiling._FinalSet_conservative=="5",])/38,2),nsmall=2),
+  format(round(nrow(AnsariAge[AnsariAge$GN_Small_Ceiling._FinalSet_conservative=="6",])/38,2),nsmall=2),
+  format(round(nrow(FullData[FullData$GN_Small_Ceiling._FinalSet_conservative=="0",])/47,2),nsmall=2),
+  format(round(nrow(FullData[FullData$GN_Small_Ceiling._FinalSet_conservative=="1",])/47,2),nsmall=2),
+  format(round(nrow(FullData[FullData$GN_Small_Ceiling._FinalSet_conservative=="2",])/47,2),nsmall=2),
+  format(round(nrow(FullData[FullData$GN_Small_Ceiling._FinalSet_conservative=="3",])/47,2),nsmall=2),
+  format(round(nrow(FullData[FullData$GN_Small_Ceiling._FinalSet_conservative=="4",])/47,2),nsmall=2),
+  format(round(nrow(FullData[FullData$GN_Small_Ceiling._FinalSet_conservative=="5",])/47,2),nsmall=2),
+  format(round(nrow(FullData[FullData$GN_Small_Ceiling._FinalSet_conservative=="6",])/47,2),nsmall=2)),
+  nrow=8, ncol=7, byrow=TRUE, dimnames=list(KLF_rnames,KLF_cnames))
+View(KnowerLevel_Freq)
+```
